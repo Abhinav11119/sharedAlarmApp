@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState } from "react";
 
 type Friend = {
   name: string;
-  status: "none" | "requested" | "approved";
+  status: "requested" | "approved";
 };
 
 type Alarm = {
@@ -21,28 +21,28 @@ type AppContextType = {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider = ({ children }: any) => {
-  const [friends, setFriends] = useState<Friend[]>([
-    { name: "Alex", status: "none" },
-    { name: "John", status: "none" },
-    { name: "Sara", status: "none" },
-  ]);
-
+  const [friends, setFriends] = useState<Friend[]>([]);
   const [alarms, setAlarms] = useState<Alarm[]>([]);
 
   const sendRequest = (name: string) => {
-    setFriends(friends.map(f =>
-      f.name === name ? { ...f, status: "requested" } : f
-    ));
+    setFriends((prev) => {
+      const exists = prev.find((f) => f.name === name);
+      if (exists) return prev;
+
+      return [...prev, { name, status: "requested" }];
+    });
   };
 
   const approveRequest = (name: string) => {
-    setFriends(friends.map(f =>
-      f.name === name ? { ...f, status: "approved" } : f
-    ));
+    setFriends((prev) =>
+      prev.map((f) =>
+        f.name === name ? { ...f, status: "approved" } : f
+      )
+    );
   };
 
   const addAlarm = (time: Date, user: string) => {
-    setAlarms([...alarms, { time, forUser: user }]);
+    setAlarms((prev) => [...prev, { time, forUser: user }]);
   };
 
   return (
