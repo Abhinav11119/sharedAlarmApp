@@ -1,50 +1,134 @@
-# Welcome to your Expo app 👋
+# sharedAlarmApp — Backend Setup Guide
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+## What's included in these files
 
-## Get started
+| File | Purpose |
+|---|---|
+| `services/firebase.ts` | Firebase init — **add your config here** |
+| `services/notifications.ts` | Push token registration + local alarm scheduling |
+| `context/AppContext.tsx` | All app state, Firebase reads/writes, push logic |
+| `app/_layout.tsx` | Root layout wrapping AppProvider |
+| `app/(tabs)/_layout.tsx` | Tab bar config |
+| `app/(tabs)/alarms.tsx` | Alarm creation + list screen |
+| `app/(tabs)/friends.tsx` | Friend requests + approval screen |
+| `app/index.tsx` | Redirect to alarms tab |
 
-1. Install dependencies
+---
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Step 1 — Install dependencies
 
 ```bash
-npm run reset-project
+npx expo install firebase expo-notifications expo-device
+npx expo install @react-native-community/datetimepicker
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+---
 
-## Learn more
+## Step 2 — Create a Firebase project
 
-To learn more about developing your project with Expo, look at the following resources:
+1. Go to https://console.firebase.google.com
+2. Click **Add project** → give it a name → create
+3. In the project dashboard:
+   - Click **Authentication** → **Get started** → enable **Anonymous** sign-in
+   - Click **Firestore Database** → **Create database** → start in **test mode**
+4. Click the **</>** (Web) icon to register a web app
+5. Copy the `firebaseConfig` object into `services/firebase.ts`
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+---
 
-## Join the community
+## Step 3 — Firestore security rules
 
-Join our community of developers creating universal apps.
+In Firebase Console → Firestore → Rules, paste:
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+```
+
+Click **Publish**.
+
+---
+
+## Step 4 — Run on a real device (required for notifications)
+
+```bash
+npx expo start
+```
+
+Scan the QR code with Expo Go on your phone. Notifications **do not work** in the simulator.
+
+---
+
+## How the app works
+
+### User Identity
+- Each user gets an anonymous Firebase UID on first launch
+- Their first 8 characters (e.g. `A3F2B1C9`) are their "display ID"
+- Users share this ID with friends
+
+### Friend Requests
+1. User A copies their ID, shares it with User B
+2. User B enters User A's ID in the Friends tab → taps Send
+3. User A sees an incoming request → taps Accept
+4. Both can now set alarms for each other
+
+### Setting Alarms
+- **For yourself**: Select "Me" → pick time → Save
+  - Schedules a local notification on your device
+  - Saved to Firestore
+- **For a friend**: Select their name → pick time → Save
+  - Schedules a local notification on your device (as confirmation)
+  - Sends a push notification directly to their device via Expo Push API
+  - Saved to Firestore so they see it in their alarm list
+
+### Alarm List
+- **My Alarms**: alarms you set for yourself
+- **Alarms I Set for Friends**: alarms you created for others
+- **Alarms Set for Me**: alarms friends created for you
+
+---
+
+## Firestore data structure
+
+```
+users/
+  {uid}/
+    pushToken: "ExponentPushToken[xxx]"
+    updatedAt: timestamp
+
+friendRequests/
+  {docId}/
+    fromUid: "abc123"
+    fromName: "ABC123"    ← short display name
+    toUid: "xyz789"
+    toName: "XYZ789"
+    status: "pending" | "approved"
+    createdAt: timestamp
+
+alarms/
+  {docId}/
+    fromUid: "abc123"
+    toUid: "xyz789"       ← same as fromUid if alarm is for self
+    toName: "Me" | "XYZ789"
+    time: timestamp
+    localId: "expo-notif-id"
+    createdAt: timestamp
+```
+
+---
+
+## Known limitations / next steps
+
+- **Short IDs**: The 8-char display ID is a prefix of the full UID. Friend lookup
+  currently stores the full UID in the request. For production, add a
+  `usersByShortId` index or use phone number auth.
+- **Background alarms**: For alarms to fire when the app is killed, use
+  `expo-task-manager` with a background fetch task.
+- **Names**: Replace short UIDs with real display names by adding a username
+  field to the `users` collection.
